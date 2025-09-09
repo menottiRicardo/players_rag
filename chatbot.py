@@ -70,6 +70,7 @@ Pregunta: {message}
 Historial: {history}
 Conocimiento: {knowledge}"""
 
+
     # Stream response
     response_text = ""
     for chunk in llm.stream(rag_prompt):
@@ -98,4 +99,4 @@ chatbot = gr.ChatInterface(
 )
 
 if __name__ == "__main__":
-    chatbot.launch()
+    chatbot.launch(share=True)
