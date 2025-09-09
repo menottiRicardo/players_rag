@@ -1,106 +1,90 @@
 import os
+# Fix tokenizers parallelism warnings
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 import gradio as gr
-
-# import the .env file
 from dotenv import load_dotenv
+
+# Load environment variables
 load_dotenv()
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# configuration
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "player_stats")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5-mini")
+# Configuration
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "player_stats2")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "1.0"))
+USE_FREE_EMBEDDINGS = os.getenv("USE_FREE_EMBEDDINGS", "true").lower() == "true"
+PERSIST_DIRECTORY = os.getenv("PERSIST_DIRECTORY", "chroma_db")
 
-# Chroma Cloud configuration
-CHROMA_API_KEY = os.getenv("CHROMA_API_KEY")
-CHROMA_TENANT = os.getenv("CHROMA_TENANT")
-CHROMA_DATABASE = os.getenv("CHROMA_DATABASE")
-print(CHROMA_API_KEY, CHROMA_TENANT, CHROMA_DATABASE)
+# Initialize embeddings model
+embeddings_model = (
+    HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL,
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': True}
+    ) if USE_FREE_EMBEDDINGS 
+    else OpenAIEmbeddings(model=EMBEDDING_MODEL)
+)
 
-embeddings_model = OpenAIEmbeddings(model=EMBEDDING_MODEL)
-
-# initiate the model
+# Initialize LLM and vector store
 llm = ChatOpenAI(temperature=LLM_TEMPERATURE, model=LLM_MODEL)
-
-# connect to Chroma Cloud
 vector_store = Chroma(
     collection_name=COLLECTION_NAME,
     embedding_function=embeddings_model,
-    chroma_cloud_api_key=CHROMA_API_KEY,
-    tenant=CHROMA_TENANT,
-    database=CHROMA_DATABASE,
+    persist_directory=PERSIST_DIRECTORY,
 )
-
-# Set up the vectorstore to be the retriever
-num_results = 300
-retriever = vector_store.as_retriever(search_kwargs={'k': num_results})
-
-# call this function for every message added to the chatbot
-
+retriever = vector_store.as_retriever(search_kwargs={'k': 500})
 
 def get_response(message, history):
-    # print(f"Input: {message}. History: {history}\n")
-
-    # retrieve the relevant chunks based on the question asked
+    """Generate streaming response using RAG."""
+    if not message:
+        return
+    
+    # Retrieve relevant documents
     docs = retriever.invoke(message)
+    
+    # Build knowledge base and collect sources
+    knowledge = "\n\n".join([doc.page_content for doc in docs])
+    sources = list(set([
+        doc.metadata.get('source', 'Unknown source') 
+        for doc in docs 
+        if hasattr(doc, 'metadata') and doc.metadata
+    ]))
+    
+    # Create RAG prompt
+    rag_prompt = f"""Eres un asistente de transferencias de futbol que responde preguntas basandote en el conocimiento que se te proporciona y solo en el.
 
-    # add all the chunks to 'knowledge' with source information
-    knowledge = ""
-    sources = []
+Reglas:
+- Debes dar respuestas largas y detalladas
+- Si se hace una pregunta sobre un jugador siempre incluye una corta introducción sobre el jugador al final o como dato curioso
+- Nunca digas que faltan datos ni como obtener los datos, porque estas hablando con un usuario
+- Si no hay suficiente información, no inventes información
+- No hagas preguntas al usuario, solo responde las preguntas
+- No menciones que estas usando el conocimiento, porque estas hablando con un usuario final
+- Si te piden una lista basado en una metrica solo entrega de mayor a menor
 
-    for doc in docs:
-        knowledge += doc.page_content+"\n\n"
-        # Extract source information if available
-        if hasattr(doc, 'metadata') and doc.metadata:
-            source = doc.metadata.get('source', 'Unknown source')
-            if source not in sources:
-                sources.append(source)
+Pregunta: {message}
+Historial: {history}
+Conocimiento: {knowledge}"""
 
-    # make the call to the LLM (including prompt)
-    if message is not None:
+    # Stream response
+    response_text = ""
+    for chunk in llm.stream(rag_prompt):
+        if hasattr(chunk, 'content'):
+            response_text += chunk.content
+            yield response_text
+    
+    # Add sources if available
+    if sources:
+        source_info = f"\n\n📚 **Fuentes consultadas:**\n" + "\n".join([f"• {source}" for source in sources])
+        yield response_text + source_info
+    else:
+        yield response_text
 
-        partial_message = ""
-
-        rag_prompt = f"""
-        Eres un asistente que responde preguntas basándose en el conocimiento
-        que se te proporciona.
-        Al responder, no utilizas tu conocimiento interno,
-        sino únicamente la información en la sección "El conocimiento".
-        Reglas:
-        - No mencionas nada al usuario sobre el conocimiento proporcionado.
-        - Debes dar respuestas largas y detalladas.
-        - Si se hace una pregunta sobre un jugador siempre incluye una corta introducción sobre el jugador.
-        - Nunca me digas que faltan datos, siempre que se pueda, da la información que tengas.
-        - No me digas como obtener los datos, porque estas hablando con un usuario.
-        - Si no hay suficiente información, diga que no lo sabe, no inventes información.
-        - utliza todas las metricas que tengas disponibles y no hagas comparaciones entre jugadores basados en una sola metrica.
-
-
-        La pregunta: {message}
-
-        Historial de conversación: {history}
-
-        El conocimiento: {knowledge}
-
-        """
-
-        print(rag_prompt)
-
-        # get the response from the LLM
-        response = llm.invoke(rag_prompt)
-        
-        # Add source information to the response
-        if sources:
-            source_info = f"\n\n📚 **Fuentes consultadas:**\n"
-            for source in sources:
-                source_info += f"• {source}\n"
-            return response.content + source_info
-        else:
-            return response.content
-
-
+# Create and launch chatbot
 chatbot = gr.ChatInterface(
     get_response,
     title="Asistente de Analítica de Jugadores de Fútbol",
@@ -113,5 +97,5 @@ chatbot = gr.ChatInterface(
     ),
 )
 
-# launch the Gradio app
-chatbot.launch()
+if __name__ == "__main__":
+    chatbot.launch()
