@@ -20,7 +20,7 @@ class Config:
 
     def __init__(self):
         self.data_path = os.getenv("DATA_PATH", "data")
-        self.collection_name = os.getenv("COLLECTION_NAME", "player_stats")
+        self.collection_name = os.getenv("COLLECTION_NAME", "player_stats2")
         self.chunk_size = int(os.getenv("CHUNK_SIZE", "300"))
         self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "100"))
         self.batch_size = int(os.getenv("BATCH_SIZE", "300"))
