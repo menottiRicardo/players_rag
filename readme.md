@@ -99,7 +99,7 @@ COLLECTION_NAME=player_stats
 # Model Configuration
 EMBEDDING_MODEL=text-embedding-3-large
 LLM_MODEL=gpt-4o-mini
-LLM_TEMPERATURE=0.5
+LLM_TEMPERATURE=1.0
 
 # Document Processing Configuration
 CHUNK_SIZE=300
@@ -120,7 +120,7 @@ python ingest_database.py
 This script will:
 - Load all CSV files from the `data/` directory
 - Split documents into chunks for optimal retrieval
-- Generate embeddings using OpenAI's embedding model
+- Generate embeddings using OpenAI's text-embedding-3-large model
 - Store the processed data in ChromaDB
 
 ### 2. Launch the Chatbot
@@ -161,7 +161,7 @@ The Gradio interface will open in your browser, allowing you to ask questions ab
 ### Model Settings
 - **EMBEDDING_MODEL**: OpenAI embedding model (default: text-embedding-3-large)
 - **LLM_MODEL**: OpenAI chat model (default: gpt-4o-mini)
-- **LLM_TEMPERATURE**: Response creativity (0.0-1.0, default: 0.5)
+- **LLM_TEMPERATURE**: Response creativity (0.0-1.0, default: 1.0)
 
 ### Processing Settings
 - **CHUNK_SIZE**: Document chunk size for processing (default: 300)

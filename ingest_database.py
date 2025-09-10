@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader, CSVLoader
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -24,29 +23,43 @@ class Config:
 
     def __init__(self):
         self.data_path = os.getenv("DATA_PATH", "data")
-        self.collection_name = os.getenv("COLLECTION_NAME", "player_stats2")
-        self.chunk_size = int(os.getenv("CHUNK_SIZE", "500"))
-        self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "150"))
-        self.batch_size = int(os.getenv("BATCH_SIZE", "500"))
+        self.collection_name = os.getenv("COLLECTION_NAME", "all_files")
+        self.chunk_size = int(os.getenv("CHUNK_SIZE", "1200"))
+        self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "300"))
+        self.batch_size = int(os.getenv("BATCH_SIZE", "300"))
         self.embedding_model = os.getenv(
-            "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
-        )
-        self.use_free_embeddings = (
-            os.getenv("USE_FREE_EMBEDDINGS", "true").lower() == "true"
+            "EMBEDDING_MODEL", "text-embedding-3-large"
         )
 
-        # Local Chroma configuration
-        self.persist_directory = os.getenv("PERSIST_DIRECTORY", "chroma_db")
+        # Chroma Cloud configuration
+        self.chroma_api_key = os.getenv("CHROMA_API_KEY")
+        self.chroma_tenant = os.getenv("CHROMA_TENANT")
+        self.chroma_database = os.getenv("CHROMA_DATABASE")
 
         # Validate required environment variables
         self._validate_config()
 
     def _validate_config(self):
         """Validate that required configuration is present."""
-        # For local Chroma, we only need to ensure the persist directory exists
-        if not os.path.exists(self.persist_directory):
-            os.makedirs(self.persist_directory, exist_ok=True)
-            print(f"✅ Created persist directory: {self.persist_directory}")
+        # For Chroma Cloud, we need to validate required environment variables
+        if not self.chroma_api_key:
+            raise ValueError(
+                "CHROMA_API_KEY environment variable is required "
+                "for Chroma Cloud"
+            )
+        if not self.chroma_tenant:
+            raise ValueError(
+                "CHROMA_TENANT environment variable is required "
+                "for Chroma Cloud"
+            )
+        if not self.chroma_database:
+            raise ValueError(
+                "CHROMA_DATABASE environment variable is required "
+                "for Chroma Cloud"
+            )
+        print("✅ Chroma Cloud configuration validated")
+        print(f"   Tenant: {self.chroma_tenant}")
+        print(f"   Database: {self.chroma_database}")
 
 
 class DocumentProcessor:
@@ -103,33 +116,24 @@ class VectorStoreManager:
         self.vector_store = self._initialize_vector_store()
 
     def _initialize_embeddings(self):
-        """Initialize embeddings model based on configuration."""
-        if self.config.use_free_embeddings:
-            print(
-                f"🆓 Using free embedding model: {self.config.embedding_model}"
-            )
-            return HuggingFaceEmbeddings(
-                model_name=self.config.embedding_model,
-                model_kwargs={'device': 'cpu'},  # Use CPU to avoid GPU
-                encode_kwargs={'normalize_embeddings': True}
-            )
-        else:
-            print(
-                f"💰 Using OpenAI embedding model: {self.config.embedding_model}"
-            )
-            return OpenAIEmbeddings(model=self.config.embedding_model)
+        """Initialize OpenAI embeddings model."""
+        print(f"💰 Using OpenAI embedding model: {self.config.embedding_model}")
+        return OpenAIEmbeddings(model=self.config.embedding_model)
 
     def _initialize_vector_store(self) -> Chroma:
-        """Initialize and connect to local Chroma database."""
+        """Initialize and connect to Chroma Cloud database."""
         vector_store = Chroma(
             collection_name=self.config.collection_name,
             embedding_function=self.embeddings_model,
-            persist_directory=self.config.persist_directory,
+            chroma_cloud_api_key=self.config.chroma_api_key,
+            tenant=self.config.chroma_tenant,
+            database=self.config.chroma_database,
         )
 
         print(
-            f"✅ Connected to local Chroma database at "
-            f"{self.config.persist_directory}"
+            f"✅ Connected to Chroma Cloud database: "
+            f"{self.config.chroma_database} "
+            f"(tenant: {self.config.chroma_tenant})"
         )
         return vector_store
 
