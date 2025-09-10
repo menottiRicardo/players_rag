@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
 import gradio as gr
 from dotenv import load_dotenv
+import chromadb
 
 # Load environment variables
 load_dotenv()
@@ -41,12 +42,17 @@ if not CHROMA_DATABASE:
         "CHROMA_DATABASE environment variable is required for Chroma Cloud"
     )
 
+# Create Chroma Cloud client
+chroma_client = chromadb.CloudClient(
+    api_key=CHROMA_API_KEY,
+    tenant=CHROMA_TENANT,
+    database=CHROMA_DATABASE,
+)
+
 vector_store = Chroma(
     collection_name=COLLECTION_NAME,
     embedding_function=embeddings_model,
-    chroma_cloud_api_key=CHROMA_API_KEY,
-    tenant=CHROMA_TENANT,
-    database=CHROMA_DATABASE,
+    client=chroma_client,
 )
 retriever = vector_store.as_retriever(search_kwargs={'k': 200})
 

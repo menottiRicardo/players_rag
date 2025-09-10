@@ -12,6 +12,7 @@ from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+import chromadb
 
 # Load environment variables
 load_dotenv()
@@ -122,12 +123,17 @@ class VectorStoreManager:
 
     def _initialize_vector_store(self) -> Chroma:
         """Initialize and connect to Chroma Cloud database."""
+        # Create Chroma Cloud client
+        chroma_client = chromadb.CloudClient(
+            api_key=self.config.chroma_api_key,
+            tenant=self.config.chroma_tenant,
+            database=self.config.chroma_database,
+        )
+
         vector_store = Chroma(
             collection_name=self.config.collection_name,
             embedding_function=self.embeddings_model,
-            chroma_cloud_api_key=self.config.chroma_api_key,
-            tenant=self.config.chroma_tenant,
-            database=self.config.chroma_database,
+            client=chroma_client,
         )
 
         print(
